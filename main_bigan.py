@@ -8,22 +8,22 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
-from models import dcgan, dcgan_specnorm
+from models import bigan
 from utils.criterion import GANLoss
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=100)
-parser.add_argument("--batch_size", type=int, default=64)
+parser.add_argument("--batch_size", type=int, default=128)
 parser.add_argument("--learning_rate", type=float, default=2e-4)
 parser.add_argument("--beta1", type=float, default=0.5)
 parser.add_argument("--beta2", type=float, default=0.999)
 parser.add_argument("--n_workers", type=int, default=8)
 parser.add_argument("--latent_dim", type=int, default=100)
 parser.add_argument("--image_ch", type=int, default=3)
-parser.add_argument("--checkpoint_path", type=str, default="checkpoints/dcgan")
-parser.add_argument("--result_path", type=str, default="results/dcgan")
+parser.add_argument("--checkpoint_path", type=str, default="checkpoints/bigan")
+parser.add_argument("--result_path", type=str, default="results/bigan")
 parser.add_argument("--data_root", type=str, default=R"E:\Datasets\CelebA")
 
 def weights_init(m):
@@ -51,37 +51,42 @@ def main(args):
     dataset = torchvision.datasets.CelebA(args.data_root, split="all", transform=tfs)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.n_workers, shuffle=True, pin_memory=True)
 
-    netG = dcgan_specnorm.Generator(latent_dim=args.latent_dim, out_dim=args.image_ch).to(device)
-    netD = dcgan_specnorm.Discriminator(in_dim=args.image_ch).to(device)
+    netG = bigan.Generator(latent_dim=args.latent_dim, out_dim=args.image_ch).to(device)
+    netD = bigan.Discriminator(latent_dim=args.latent_dim, in_dim=args.image_ch).to(device)
+    netE = bigan.Encoder(latent_dim=args.latent_dim, in_dim=args.image_ch).to(device)
     netG.apply(weights_init)
     netD.apply(weights_init)
+    netE.apply(weights_init)
 
-    optG = torch.optim.Adam(netG.parameters(), lr=4e-4, betas=(args.beta1, args.beta2))
-    optD = torch.optim.Adam(netD.parameters(), lr=1e-4, betas=(args.beta1, args.beta2))
+    optG = torch.optim.Adam(list(netG.parameters()) + list(netE.parameters()), lr=4e-4, betas=(args.beta1, args.beta2), weight_decay=2.5e-5)
+    optD = torch.optim.Adam(netD.parameters(), lr=5e-5, betas=(args.beta1, args.beta2), weight_decay=2.5e-5)
 
     criterion = GANLoss('vanilla', target_real_label=0.0, target_fake_label=1.0, target_fake_G_label=0.0).to(device)
 
-    fixed_noise = torch.randn(args.batch_size, args.latent_dim, device=device)
+    fixed_noise = torch.randn(64, args.latent_dim, 1, 1, device=device)
 
     netG.train()
     netD.train()
+    netE.train()
     for epoch in range(args.n_epochs):
         for i, (inputs, _) in enumerate(dataloader):
             inputs = inputs.to(device)
 
+            z_real = torch.randn(inputs.shape[0], args.latent_dim, 1, 1, device=device)
+
             optD.zero_grad()
-            # Discriminator (Real)
-            outD = netD(inputs)
-            Dx = outD.mean().item()
+
+            z_enc = netE(inputs)
+            outD = netD(inputs, z_enc.detach())
+            Dx1 = outD.mean().item()
             lossD_real = criterion(outD, True)
             lossD_real.backward()
 
             # Generate Fake
-            z = torch.randn(inputs.shape[0], args.latent_dim, device=device)
-            outG = netG(z)
+            x_fake = netG(z_real)
 
             # Discriminator (Fake)
-            outD = netD(outG.detach())
+            outD = netD(x_fake.detach(), z_real)
             Dgz1 = outD.mean().item()
             lossD_fake = criterion(outD, False)
             lossD_fake.backward()
@@ -89,35 +94,43 @@ def main(args):
             optD.step()
 
             optG.zero_grad()
+            # Encoder
+            outD = netD(inputs, z_enc)
+            Dx2 = outD.mean().item()
+            lossE = criterion(outD, False)
+            lossE.backward()
+
             # Generator
-            outD = netD(outG)
+            outD = netD(x_fake, z_real)
             Dgz2 = outD.mean().item()
             lossG = criterion(outD, False, True)
             lossG.backward()
             optG.step()
 
             if i % 50 == 0:
-                print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
-                    % (epoch + 1, args.n_epochs, i, len(dataloader), lossD.item(), lossG.item(), Dx, Dgz1, Dgz2))
+                print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f Loss_E: %.4f D(x): %.4f / %.4f D(G(z)): %.4f / %.4f'
+                    % (epoch + 1, args.n_epochs, i, len(dataloader), lossD.item(), lossG.item(), lossE.item(), Dx1, Dx2, Dgz1, Dgz2))
 
             if i % 200 == 0:
                 outG = netG(fixed_noise).detach()
                 save_image(outG, '%s/fake_epoch_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
-        save_model((netG, netD), (optG, optD), epoch, args.checkpoint_path)            
+        save_model((netG, netD, netE), (optG, optD), epoch, args.checkpoint_path)
 
 
 def save_model(models, optimizers, epoch, checkpoint_path):
-    netG, netD = models
+    netG, netD, netE = models
     optG, optD = optimizers
 
     checkpoint = {
         'state_dict': {
             'generator': netG.state_dict(),
             'discriminator': netD.state_dict(),
+            'encoder': netE.state_dict(),
         },
         'optimizer': {
             'generator': optG.state_dict(),
-            'discriminator': optD.state_dict()
+            'discriminator': optD.state_dict(),
+            # 'encoder': optE.state_dict(),
         },
         'epoch': epoch,
     }
