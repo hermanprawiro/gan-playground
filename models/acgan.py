@@ -3,13 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Generator(nn.Module):
-    def __init__(self, latent_dim=100, class_dim=10, n_class=10, ngf=64, img_dim=3):
+    def __init__(self, latent_dim=100, n_class=10, ngf=64, img_dim=3):
         super().__init__()
 
-        self.class_embed = nn.Embedding(n_class, class_dim)
+        self.class_embed = nn.Embedding(n_class, latent_dim)
 
         self.conv1 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(latent_dim + class_dim, ngf * 16, 4)), # (n, ngf * 16, 4, 4)
+            nn.utils.spectral_norm(nn.ConvTranspose2d(latent_dim, ngf * 16, 4)), # (n, ngf * 16, 4, 4)
             nn.BatchNorm2d(ngf * 16),
             nn.LeakyReLU(0.2, True)
         )
@@ -39,8 +39,7 @@ class Generator(nn.Module):
         )
 
     def forward(self, z, c):
-        c = self.class_embed(c)
-        z = torch.cat([z, c], dim=1)
+        z = z * self.class_embed(c)
         z = z[..., None, None]
         
         out = self.conv1(z)
