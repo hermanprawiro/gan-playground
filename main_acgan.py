@@ -8,7 +8,6 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
-from datasets.bp4d import BP4D_Split
 from models import acgan
 from utils.criterion import GANLoss
 from utils.misc import AverageMeter, accuracy
