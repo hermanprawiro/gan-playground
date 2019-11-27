@@ -38,7 +38,8 @@ def main(args):
     args.checkpoint_path = os.path.join(args.checkpoint_path, args.save_name)
     args.result_path = os.path.join(args.result_path, args.save_name)
     os.makedirs(args.checkpoint_path, exist_ok=True)
-    os.makedirs(args.result_path, exist_ok=True)
+    os.makedirs(os.path.join(args.result_path, 'fake'), exist_ok=True)
+    os.makedirs(os.path.join(args.result_path, 'real'), exist_ok=True)
 
     tfs = transforms.Compose([
         transforms.Resize(args.image_res),
@@ -60,6 +61,7 @@ def main(args):
     criterion = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.0, target_fake_G_label=0.9).to(device)
 
     fixed_noise = torch.randn(32, args.latent_dim, device=device)
+    fixed_real = next(iter(dataloader))[0][:32].to(device)
 
     netG.train()
     netD.train()
@@ -104,6 +106,7 @@ def main(args):
             optD.step()
 
             if i % 50 == 0:
+                # Reconstruction from latent code
                 outG = netG(fixed_noise).detach()
                 z_enc = netE(outG).detach()
                 reconG = netG(z_enc).detach()
@@ -111,7 +114,12 @@ def main(args):
 
                 print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f Loss_E: %.4f D(x): %.4f / %.4f D(G(z)): %.4f / %.4f | Dist: %.4f'
                     % (epoch + 1, args.n_epochs, i, len(dataloader), lossD.item(), lossG.item(), lossE.item(), Dx1, Dx2, Dgz1, Dgz2, eval_dist))
-                save_image(torch.cat([outG, reconG], dim=0), '%s/fake_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
+                save_image(torch.cat([outG, reconG], dim=0), '%s/fake/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
+
+                # Reconstruction from real image
+                z_enc = netE(fixed_real).detach()
+                reconG = netG(z_enc).detach()
+                save_image(torch.cat([fixed_real, reconG], dim=0), '%s/real/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
 
         save_model((netG, netD, netE), (optG, optD), epoch, args.checkpoint_path)
 
