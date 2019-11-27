@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
-from models import bigan_128
+from models import bigan
 from utils.criterion import GANLoss
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -21,21 +21,15 @@ parser.add_argument("--beta1", type=float, default=0.5)
 parser.add_argument("--beta2", type=float, default=0.999)
 parser.add_argument("--ndf", type=int, default=64, help="Base features multiplier for discriminator")
 parser.add_argument("--ngf", type=int, default=64, help="Base features multiplier for generator")
+parser.add_argument("--n_disc_update", type=int, default=2)
 parser.add_argument("--n_workers", type=int, default=8)
 parser.add_argument("--latent_dim", type=int, default=100)
 parser.add_argument("--image_ch", type=int, default=3)
+parser.add_argument("--image_res", type=int, default=64)
 parser.add_argument("--checkpoint_path", type=str, default="checkpoints")
 parser.add_argument("--result_path", type=str, default="results")
 parser.add_argument("--save_name", type=str, default="bigan")
 parser.add_argument("--data_root", type=str, default=R"E:\Datasets\CelebA")
-
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif classname.find('BatchNorm') != -1:
-        nn.init.normal_(m.weight.data, 1.0, 0.02)
-        nn.init.constant_(m.bias.data, 0)
 
 def main(args):
     if device.type == 'cuda':
@@ -47,26 +41,23 @@ def main(args):
     os.makedirs(args.result_path, exist_ok=True)
 
     tfs = transforms.Compose([
-        transforms.Resize(128),
-        transforms.CenterCrop(128),
+        transforms.Resize(args.image_res),
+        transforms.CenterCrop(args.image_res),
         transforms.ToTensor(),
-        transforms.Normalize([0.5]*3, [0.5]*3)
+        transforms.Normalize([0.5]*args.image_ch, [0.5]*args.image_ch)
     ])
 
-    dataset = torchvision.datasets.CelebA(args.data_root, split="all", transform=tfs)
+    dataset = torchvision.datasets.CelebA(args.data_root, split="all", transform=tfs, download=True)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.n_workers, shuffle=True, pin_memory=True)
 
-    netG = bigan_128.Generator(latent_dim=args.latent_dim, ngf=args.ngf, img_dim=args.image_ch).to(device)
-    netD = bigan_128.Discriminator(latent_dim=args.latent_dim, ndf=args.ndf, img_dim=args.image_ch).to(device)
-    netE = bigan_128.Encoder(latent_dim=args.latent_dim, ndf=args.ndf, img_dim=args.image_ch).to(device)
-    netG.apply(weights_init)
-    netD.apply(weights_init)
-    netE.apply(weights_init)
+    netG = bigan.Generator(z_dim=args.latent_dim, ngf=args.ngf, img_dim=args.image_ch, resolution=args.image_res).to(device)
+    netD = bigan.Discriminator(z_dim=args.latent_dim, ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res).to(device)
+    netE = bigan.Encoder(ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res, output_dim=args.latent_dim).to(device)
 
     optG = torch.optim.Adam(list(netG.parameters()) + list(netE.parameters()), lr=2e-4, betas=(args.beta1, args.beta2))
     optD = torch.optim.Adam(netD.parameters(), lr=2e-4, betas=(args.beta1, args.beta2))
 
-    criterion = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.1, target_fake_G_label=0.9).to(device)
+    criterion = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.0, target_fake_G_label=0.9).to(device)
 
     fixed_noise = torch.randn(32, args.latent_dim, device=device)
 
@@ -81,19 +72,21 @@ def main(args):
             z_enc = netE(inputs)
             x_fake = netG(z_real)
 
-            optG.zero_grad()
-            # Encoder
-            outD = netD(inputs, z_enc)
-            Dx2 = outD.mean().item()
-            lossE = criterion(outD, False)
-            lossE.backward()
+            # TTUR Training
+            if i % args.n_disc_update == 0:
+                optG.zero_grad()
+                # Encoder
+                outD = netD(inputs, z_enc)
+                Dx2 = outD.mean().item()
+                lossE = criterion(outD, False)
+                lossE.backward()
 
-            # Generator
-            outD = netD(x_fake, z_real)
-            Dgz2 = outD.mean().item()
-            lossG = criterion(outD, False, True)
-            lossG.backward()
-            optG.step()
+                # Generator
+                outD = netD(x_fake, z_real)
+                Dgz2 = outD.mean().item()
+                lossG = criterion(outD, False, True)
+                lossG.backward()
+                optG.step()
 
             optD.zero_grad()
             # Discriminator (Real)
@@ -109,20 +102,6 @@ def main(args):
             lossD_fake.backward()
             lossD = lossD_real + lossD_fake
             optD.step()
-
-            # optG.zero_grad()
-            # # Encoder
-            # outD = netD(inputs, z_enc)
-            # Dx2 = outD.mean().item()
-            # lossE = criterion(outD, False)
-            # lossE.backward()
-
-            # # Generator
-            # outD = netD(x_fake, z_real)
-            # Dgz2 = outD.mean().item()
-            # lossG = criterion(outD, False, True)
-            # lossG.backward()
-            # optG.step()
 
             if i % 50 == 0:
                 outG = netG(fixed_noise).detach()
@@ -150,7 +129,6 @@ def save_model(models, optimizers, epoch, checkpoint_path):
         'optimizer': {
             'generator': optG.state_dict(),
             'discriminator': optD.state_dict(),
-            # 'encoder': optE.state_dict(),
         },
         'epoch': epoch,
     }

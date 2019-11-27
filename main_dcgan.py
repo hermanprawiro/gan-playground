@@ -43,7 +43,7 @@ def main(args):
         transforms.Resize(args.image_res),
         transforms.CenterCrop(args.image_res),
         transforms.ToTensor(),
-        transforms.Normalize([0.5]*3, [0.5]*3)
+        transforms.Normalize([0.5]*args.image_ch, [0.5]*args.image_ch)
     ])
 
     dataset = torchvision.datasets.CelebA(args.data_root, split="all", transform=tfs)
