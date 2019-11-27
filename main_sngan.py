@@ -10,7 +10,6 @@ from torchvision.utils import save_image
 
 from models import sngan_projection
 from utils.criterion import GANLoss
-from utils.misc import AverageMeter, accuracy
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -31,14 +30,6 @@ parser.add_argument("--checkpoint_path", type=str, default="checkpoints")
 parser.add_argument("--result_path", type=str, default="results")
 parser.add_argument("--save_name", type=str, default="sngan_mnist")
 parser.add_argument("--data_root", type=str, default=R"E:\Datasets\MNIST")
-
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif classname.find('BatchNorm') != -1:
-        nn.init.normal_(m.weight.data, 1.0, 0.02)
-        nn.init.constant_(m.bias.data, 0)
 
 def main(args):
     if device.type == 'cuda':
@@ -114,7 +105,7 @@ def main(args):
 
             if i % 50 == 0:
                 outG = netG(fixed_noise, fixed_label).detach()
-                save_image(outG, '%s/fake_epoch_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
+                save_image(outG, '%s/fake_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
         save_model((netG, netD), (optG, optD), epoch, args.checkpoint_path)            
 
 

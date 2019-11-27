@@ -102,7 +102,7 @@ def main(args):
 
             if i % 200 == 0:
                 outG = netG(fixed_noise).detach()
-                save_image(outG, '%s/fake_epoch_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
+                save_image(outG, '%s/fake_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
         save_model((netG, netD), (optG, optD), epoch, args.checkpoint_path)            
 
 

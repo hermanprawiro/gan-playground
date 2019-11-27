@@ -3,98 +3,107 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Generator(nn.Module):
-    def __init__(self, latent_dim=100, out_dim=3):
+    def __init__(self, latent_dim=100, ngf=64, img_dim=3):
         super().__init__()
 
-        self.conv0 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(latent_dim, 512, 4, bias=False)), # (n, 512, 4, 4)
-            nn.BatchNorm2d(512),
+        self.conv1 = nn.Sequential(
+            nn.utils.spectral_norm(nn.ConvTranspose2d(latent_dim, ngf * 16, 4)), # (n, ngf * 16, 4, 4)
+            nn.BatchNorm2d(ngf * 16),
             nn.LeakyReLU(0.2, True)
         )
-        self.conv1 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(512, 256, 4, stride=2, padding=1, bias=False)), # (n, 256, 8, 8)
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, True),
-        )
         self.conv2 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1, bias=False)), # (n, 128, 16, 16)
-            nn.BatchNorm2d(128),
+            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 16, ngf * 8, 4, stride=2, padding=1)), # (n, ngf * 8, 8, 8)
+            nn.BatchNorm2d(ngf * 8),
             nn.LeakyReLU(0.2, True),
         )
         self.conv3 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1, bias=False)), # (n, 64, 32, 32)
-            nn.BatchNorm2d(64),
+            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, stride=2, padding=1)), # (n, ngf * 4, 16, 16)
+            nn.BatchNorm2d(ngf * 4),
             nn.LeakyReLU(0.2, True),
         )
         self.conv4 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1, bias=False)), # (n, 32, 64, 64)
-            nn.BatchNorm2d(32),
+            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, stride=2, padding=1)), # (n, ngf * 2, 32, 32)
+            nn.BatchNorm2d(ngf * 2),
             nn.LeakyReLU(0.2, True),
         )
         self.conv5 = nn.Sequential(
-            nn.ConvTranspose2d(32, out_dim, 4, stride=2, padding=1), # (n, out_dim, 128, 128)
+            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 2, ngf, 4, stride=2, padding=1)), # (n, ngf, 64, 64)
+            nn.BatchNorm2d(ngf),
+            nn.LeakyReLU(0.2, True),
+        )
+        self.conv_out = nn.Sequential(
+            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf, img_dim, 4, stride=2, padding=1)), # (n, img_dim, 128, 128)
             nn.Tanh(),
         )
 
     def forward(self, z):
-        out = self.conv0(z)
-        out = self.conv1(out)
+        z = z[..., None, None]
+        out = self.conv1(z)
         out = self.conv2(out)
         out = self.conv3(out)
         out = self.conv4(out)
         out = self.conv5(out)
+        out = self.conv_out(out)
 
         return out
 
 class Discriminator(nn.Module):
-    def __init__(self, latent_dim=100, in_dim=3):
+    def __init__(self, latent_dim=100, ndf=64, img_dim=3):
         super().__init__()
 
-        # (n, in_dim, 64, 64)
+        # (n, img_dim, 128, 128)
         self.conv1 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(in_dim, 32, 4, stride=2, padding=1)), # (n, 32, 64, 64)
+            nn.utils.spectral_norm(nn.Conv2d(img_dim, ndf, 4, stride=2, padding=1)), # (n, ndf, 64, 64)
             nn.LeakyReLU(0.2, True)
         )
         self.conv2 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(32, 64, 4, stride=2, padding=1, bias=False)), # (n, 64, 32, 32)
-            nn.BatchNorm2d(64),
+            nn.utils.spectral_norm(nn.Conv2d(ndf, ndf * 2, 4, stride=2, padding=1)), # (n, ndf * 2, 32, 32)
+            nn.BatchNorm2d(ndf * 2),
             nn.LeakyReLU(0.2, True),
         )
         self.conv3 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(64, 128, 4, stride=2, padding=1, bias=False)), # (n, 128, 16, 16)
-            nn.BatchNorm2d(128),
+            nn.utils.spectral_norm(nn.Conv2d(ndf * 2, ndf * 4, 4, stride=2, padding=1)), # (n, ndf * 4, 16, 16)
+            nn.BatchNorm2d(ndf * 4),
             nn.LeakyReLU(0.2, True),
         )
         self.conv4 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(128, 256, 4, stride=2, padding=1, bias=False)), # (n, 256, 8, 8)
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, True)
+            nn.utils.spectral_norm(nn.Conv2d(ndf * 4, ndf * 8, 4, stride=2, padding=1)), # (n, ndf * 8, 8, 8)
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, True),
         )
         self.conv5 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(256, 512, 4, stride=2, padding=1, bias=False)), # (n, 512, 4, 4)
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, True)
-        )
-        self.conv6 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(512, 512, 4, bias=False)), # (n, 512, 1, 1)
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, True)
-        )
-
-        self.conv1_z = nn.Sequential(
-            nn.Conv2d(latent_dim, 512, 1),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv2_z = nn.Sequential(
-            nn.Conv2d(512, 512, 1),
+            nn.utils.spectral_norm(nn.Conv2d(ndf * 8, ndf * 16, 4, stride=2, padding=1)), # (n, ndf * 16, 4, 4)
+            nn.BatchNorm2d(ndf * 16),
             nn.LeakyReLU(0.2, True),
         )
 
-        self.conv1_joint = nn.Sequential(
-            nn.Conv2d(1024, 512, 1),
+        self.fc_z = nn.Sequential(
+            nn.Linear(latent_dim, ndf * 16),
             nn.LeakyReLU(0.2, True),
+            nn.Dropout(),
+            nn.Linear(ndf * 16, ndf * 16),
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout(),
         )
-        self.conv2_joint = nn.Conv2d(512, 1, 1)
+
+        self.fc_h = nn.Sequential(
+            nn.Linear(ndf * 16, ndf * 16),
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout(),
+            nn.Linear(ndf * 16, ndf * 16),
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout(),
+        )
+
+        self.fc_joint = nn.Sequential(
+            nn.Linear(ndf * 32, ndf * 32),
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout(),
+            nn.Linear(ndf * 32, ndf * 32),
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout(),
+            nn.Linear(ndf * 32, 1)
+        )
 
     def forward(self, x, z):
         # D(x)
@@ -103,52 +112,45 @@ class Discriminator(nn.Module):
         h_x = self.conv3(h_x)
         h_x = self.conv4(h_x)
         h_x = self.conv5(h_x)
-        h_x = self.conv6(h_x)
+        h_x = torch.sum(h_x, [2, 3]) # Global sum pooling
+
         # D(z)
-        h_z = self.conv1_z(z)
-        h_z = self.conv2_z(h_z)
+        h_z = self.fc_z(z)
         # Joint
-        out = self.conv1_joint(torch.cat([h_x, h_z], dim=1))
-        out = self.conv2_joint(out)
+        out = self.fc_joint(torch.cat([h_x, h_z], dim=1))
         
         return out
 
 class Encoder(nn.Module):
-    def __init__(self, latent_dim=100, in_dim=3):
+    def __init__(self, latent_dim=100, ndf=64, img_dim=3):
         super().__init__()
 
-        # (n, in_dim, 128, 128)
+        # (n, img_dim, 128, 128)
         self.conv1 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(in_dim, 32, 4, stride=2, padding=1, bias=False)), # (n, 32, 64, 64)
-            nn.BatchNorm2d(32),
+            nn.utils.spectral_norm(nn.Conv2d(img_dim, ndf, 4, stride=2, padding=1)), # (n, ndf, 64, 64)
             nn.LeakyReLU(0.2, True)
         )
         self.conv2 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(32, 64, 4, stride=2, padding=1, bias=False)), # (n, 64, 16, 16)
-            nn.BatchNorm2d(64),
+            nn.utils.spectral_norm(nn.Conv2d(ndf, ndf * 2, 4, stride=2, padding=1)), # (n, ndf * 2, 32, 32)
+            nn.BatchNorm2d(ndf * 2),
             nn.LeakyReLU(0.2, True),
         )
         self.conv3 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(64, 128, 4, stride=2, padding=1, bias=False)), # (n, 128, 16, 16)
-            nn.BatchNorm2d(128),
+            nn.utils.spectral_norm(nn.Conv2d(ndf * 2, ndf * 4, 4, stride=2, padding=1)), # (n, ndf * 4, 16, 16)
+            nn.BatchNorm2d(ndf * 4),
             nn.LeakyReLU(0.2, True),
         )
         self.conv4 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(128, 256, 4, stride=2, padding=1, bias=False)), # (n, 256, 8, 8)
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, True)
+            nn.utils.spectral_norm(nn.Conv2d(ndf * 4, ndf * 8, 4, stride=2, padding=1)), # (n, ndf * 8, 8, 8)
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, True),
         )
         self.conv5 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(256, 512, 4, stride=2, padding=1, bias=False)), # (n, 512, 4, 4)
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, True)
+            nn.utils.spectral_norm(nn.Conv2d(ndf * 8, ndf * 16, 4, stride=2, padding=1)), # (n, ndf * 16, 4, 4)
+            nn.BatchNorm2d(ndf * 16),
+            nn.LeakyReLU(0.2, True),
         )
-        self.conv6 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(512, 512, 4, bias=False)), # (n, 512, 1, 1)
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, True)
-        )
-        self.conv7 = nn.Conv2d(512, latent_dim, 1)
+        self.fc = nn.Linear(ndf * 16, latent_dim)
 
     def forward(self, x):
         out = self.conv1(x)
@@ -156,8 +158,8 @@ class Encoder(nn.Module):
         out = self.conv3(out)
         out = self.conv4(out)
         out = self.conv5(out)
-        out = self.conv6(out)
-        out = self.conv7(out)
+        out = torch.sum(out, [2, 3])
+        out = self.fc(out)
 
         return out
 
@@ -166,7 +168,7 @@ if __name__ == "__main__":
     netD = Discriminator()
     netE = Encoder()
 
-    z = torch.randn(4, 100, 1, 1)
+    z = torch.randn(4, 100)
     fake = netG(z)
     logits = netD(fake, z)
     print(fake.shape)
