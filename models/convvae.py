@@ -8,12 +8,7 @@ class Decoder(nn.Module):
         self.ndf = ndf
         self.img_dim = img_dim
 
-        # self.gen_z = nn.Sequential(
-        #     nn.ConvTranspose2d(ndf * 4, ndf * 16, 4, bias=False),
-        #     nn.BatchNorm2d(ndf * 16),
-        #     nn.ReLU(True)
-        # )
-        self.gen_z = nn.Linear(ndf * 4, ndf * 16 * 4 * 4)
+        self.gen_z = nn.Linear(ndf * 2, ndf * 16 * 4 * 4)
 
         self.conv1 = nn.Sequential(
             nn.ConvTranspose2d(ndf * 16, ndf * 8, 4, stride=2, padding=1, bias=False), # (n, ndf * 8, 8, 8)
@@ -41,7 +36,6 @@ class Decoder(nn.Module):
         )
 
     def forward(self, z):
-        # z = self.gen_z(z.view(-1, self.ndf * 4, 1, 1))
         z = self.gen_z(z).view(-1, self.ndf * 16, 4, 4)
 
         out = self.conv1(z)
@@ -84,13 +78,12 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(ndf * 16),
             nn.ReLU(True)
         )
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Sequential(
-            nn.Linear(ndf * 16, ndf * 4),
+            nn.Linear(ndf * 16, ndf * 16),
             nn.ReLU(True)
         )
-        self.fc_mu = nn.Linear(ndf * 4, ndf * 4)
-        self.fc_logvar = nn.Linear(ndf * 4, ndf * 4)
+        self.fc_mu = nn.Linear(ndf * 16, ndf * 2)
+        self.fc_logvar = nn.Linear(ndf * 16, ndf * 2)
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -99,7 +92,8 @@ class Encoder(nn.Module):
         return z
 
     def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
+        # std = torch.exp(0.5*logvar)
+        std = F.softplus(logvar)
         eps = torch.randn_like(std)
         return mu + eps*std
 
@@ -110,7 +104,7 @@ class Encoder(nn.Module):
         out = self.conv4(out)
         out = self.conv5(out)
 
-        out = self.avgpool(out).flatten(start_dim=1)
+        out = torch.sum(out, dim=[2, 3]) # Global Sum Pooling
         out = self.fc(out)
 
         mu = self.fc_mu(out)

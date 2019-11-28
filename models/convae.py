@@ -8,7 +8,7 @@ class Decoder(nn.Module):
         self.ndf = ndf
         self.img_dim = img_dim
 
-        self.gen_z = nn.Linear(ndf * 4, ndf * 16 * 4 * 4)
+        self.gen_z = nn.Linear(ndf * 2, ndf * 16 * 4 * 4)
 
         self.conv1 = nn.Sequential(
             nn.ConvTranspose2d(ndf * 16, ndf * 8, 4, stride=2, padding=1, bias=False), # (n, ndf * 8, 8, 8)
@@ -78,11 +78,10 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(ndf * 16),
             nn.ReLU(True)
         )
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Sequential(
             nn.Linear(ndf * 16, ndf * 8),
             nn.ReLU(True),
-            nn.Linear(ndf * 8, ndf * 4)
+            nn.Linear(ndf * 8, ndf * 2)
         )
 
     def forward(self, x):
@@ -91,8 +90,8 @@ class Encoder(nn.Module):
         out = self.conv3(out)
         out = self.conv4(out)
         out = self.conv5(out)
+        out = torch.sum(out, dim=[2, 3]) # Global sum pooling
 
-        out = self.avgpool(out).flatten(start_dim=1)
         out = self.fc(out)
 
         return out
