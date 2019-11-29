@@ -6,11 +6,9 @@ class GANLoss(nn.Module):
         super().__init__()
 
         self.gan_mode = gan_mode
-
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
         self.register_buffer('fake_G_label', torch.tensor(target_fake_G_label))
-        self.gan_mode = gan_mode
         if gan_mode == 'vanilla':
             self.loss = nn.BCEWithLogitsLoss()
         elif gan_mode == 'lsgan':
@@ -41,3 +39,24 @@ class GANLoss(nn.Module):
             else:
                 loss = nn.functional.relu(1. + prediction).mean()
         return loss
+
+class VAELoss(nn.Module):
+    def __init__(self, recon_mode='l2'):
+        super().__init__()
+
+        recon_dict = {
+            'bce': nn.BCELoss(reduction='sum'),
+            'l1': nn.L1Loss(reduction='sum'),
+            'l2': nn.MSELoss(reduction='sum'),
+            'smoothl1': nn.SmoothL1Loss(reduction='sum'),
+        }
+        if recon_mode not in recon_dict.keys():
+            raise NotImplementedError('Reconstruction mode %s is not implemented' % recon_mode)
+        self.recon_criterion = recon_dict[recon_mode]
+
+    def forward(self, recon_x, target_x, mu, logvar):
+        recon_loss = self.recon_criterion(recon_x, target_x)
+        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+        return recon_loss + kld_loss
