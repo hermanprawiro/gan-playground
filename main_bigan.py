@@ -21,7 +21,7 @@ parser.add_argument("--beta1", type=float, default=0.5)
 parser.add_argument("--beta2", type=float, default=0.999)
 parser.add_argument("--ndf", type=int, default=64, help="Base features multiplier for discriminator")
 parser.add_argument("--ngf", type=int, default=64, help="Base features multiplier for generator")
-parser.add_argument("--n_disc_update", type=int, default=2)
+parser.add_argument("--n_disc_update", type=int, default=1)
 parser.add_argument("--n_workers", type=int, default=8)
 parser.add_argument("--latent_dim", type=int, default=100)
 parser.add_argument("--image_ch", type=int, default=3)
@@ -114,12 +114,12 @@ def main(args):
 
                 print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f Loss_E: %.4f D(x): %.4f / %.4f D(G(z)): %.4f / %.4f | Dist: %.4f'
                     % (epoch + 1, args.n_epochs, i, len(dataloader), lossD.item(), lossG.item(), lossE.item(), Dx1, Dx2, Dgz1, Dgz2, eval_dist))
-                save_image(torch.cat([outG, reconG], dim=0), '%s/fake/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
+                save_image(torch.cat([outG, reconG], dim=0), '%s/fake/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1), normalize=True)
 
                 # Reconstruction from real image
                 z_enc = netE(fixed_real).detach()
                 reconG = netG(z_enc).detach()
-                save_image(torch.cat([fixed_real, reconG], dim=0), '%s/real/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1))
+                save_image(torch.cat([fixed_real, reconG], dim=0), '%s/real/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1), normalize=True)
 
         save_model((netG, netD, netE), (optG, optD), epoch, args.checkpoint_path)
 
