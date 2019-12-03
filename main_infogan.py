@@ -28,6 +28,7 @@ parser.add_argument("--n_workers", type=int, default=8)
 parser.add_argument("--noise_dim", type=int, default=62)
 parser.add_argument("--cont_dim", type=int, default=2)
 parser.add_argument("--cat_dim", type=int, default=10)
+parser.add_argument("--lambda_mi_cont", type=float, default=0.01)
 parser.add_argument("--image_ch", type=int, default=3)
 parser.add_argument("--image_res", type=int, default=64)
 parser.add_argument("--checkpoint_path", type=str, default="checkpoints")
@@ -139,7 +140,7 @@ def main(args):
             _, outCat, outMu, outLogvar = netD(outG)
             lossMI_cat = criterion_cat(outCat, z_labels)
             lossMI_cont = gaussian_log_loss(z_cont, outMu, outLogvar.exp())
-            lossMI = lossMI_cat_real + lossMI_cat + lossMI_cont*0.1
+            lossMI = lossMI_cat_real + lossMI_cat + lossMI_cont*args.lambda_mi_cont
             lossMI.backward()
             optMI.step()
 
