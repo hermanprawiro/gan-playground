@@ -31,6 +31,7 @@ parser.add_argument("--checkpoint_path", type=str, default="checkpoints")
 parser.add_argument("--result_path", type=str, default="results")
 parser.add_argument("--save_name", type=str, default="vaegan")
 parser.add_argument("--data_root", type=str, default=R"E:\Datasets\CelebA")
+# parser.add_argument("--data_root", type=str, default=R"E:\Datasets\MNIST")
 
 def main(args):
     if device.type == 'cuda':
@@ -50,15 +51,16 @@ def main(args):
     ])
 
     dataset = torchvision.datasets.CelebA(args.data_root, split="all", transform=tfs, download=True)
+    # dataset = torchvision.datasets.MNIST(args.data_root, train=True, transform=tfs, download=True)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.n_workers, shuffle=True, pin_memory=True)
 
     netG = vaegan.Generator(z_dim=args.latent_dim, ngf=args.ngf, img_dim=args.image_ch, resolution=args.image_res).to(device)
     netD = vaegan.Discriminator(z_dim=args.latent_dim, ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res).to(device)
     netE = vaegan.Encoder(ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res, output_dim=args.latent_dim).to(device)
 
-    optG = torch.optim.Adam(netG.parameters(), lr=4e-4, betas=(args.beta1, args.beta2))
+    optG = torch.optim.Adam(netG.parameters(), lr=2e-4, betas=(args.beta1, args.beta2))
     optD = torch.optim.Adam(netD.parameters(), lr=1e-4, betas=(args.beta1, args.beta2))
-    optE = torch.optim.Adam(netE.parameters(), lr=4e-4, betas=(args.beta1, args.beta2))
+    optE = torch.optim.Adam(netE.parameters(), lr=1e-4, betas=(args.beta1, args.beta2))
 
     criterion_gan = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.0, target_fake_G_label=0.9).to(device)
     criterion_sim = nn.BCELoss()
@@ -85,7 +87,7 @@ def main(args):
             lossE_prior = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
             _, featD_real = netD(x_real, True)
             _, featD_recon = netD(x_recon, True)
-            loss_similarity = (featD_real - featD_recon).pow(2).mean()
+            loss_similarity = (featD_real.detach() - featD_recon).pow(2).sum()
             lossE = lossE_prior + loss_similarity
             lossE.backward()
             optE.step()
@@ -96,16 +98,14 @@ def main(args):
             x_recon = netG(z_enc.detach())
             _, featD_real = netD(x_real, True)
             _, featD_recon = netD(x_recon, True)
-            loss_similarity = (featD_real - featD_recon).pow(2).mean()
+            loss_similarity = (featD_real.detach() - featD_recon).pow(2).mean()
 
             outD = netD(x_prior)
-            Dgz1 = outD.mean().item()
             lossG_prior = criterion_gan(outD, False, True)
             outD = netD(x_recon)
-            Dgz2 = outD.mean().item()
             lossG_recon = criterion_gan(outD, False, True)
 
-            lossG = lossG_prior + lossG_recon + loss_similarity
+            lossG = lossG_prior + lossG_recon + loss_similarity * 0.2
             lossG.backward()
             optG.step()
 
@@ -114,18 +114,19 @@ def main(args):
             outD = netD(x_real)
             Dx1 = outD.mean().item()
             lossD_real = criterion_gan(outD, True)
-            lossD_real.backward()
 
             # Discriminator (Fake)
             outD = netD(x_prior.detach())
+            Dgz1 = outD.mean().item()
             lossD_fake = criterion_gan(outD, False)
-            lossD_fake.backward()
 
             # Discriminator (Recon)
             outD = netD(x_recon.detach())
+            Dgz2 = outD.mean().item()
             lossD_recon = criterion_gan(outD, False)
-            lossD_recon.backward()
+
             lossD = lossD_real + lossD_fake + lossD_recon
+            lossD.backward()
             optD.step()
 
             if i % 50 == 0:
