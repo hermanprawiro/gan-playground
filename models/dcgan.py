@@ -86,8 +86,8 @@ def D_arch(ndf=64, img_dim=3):
         'out_channels': [ndf * item for item in [2, 4, 8, 16]],
     }
     arch[128] = {
-        'in_channels': [img_dim] + [ndf * item for item in [2, 4, 8, 16]],
-        'out_channels': [ndf * item for item in [2, 4, 8, 16, 16]],
+        'in_channels': [img_dim] + [ndf * item for item in [1, 2, 4, 8]],
+        'out_channels': [ndf * item for item in [1, 2, 4, 8, 16]],
     }
     return arch
 

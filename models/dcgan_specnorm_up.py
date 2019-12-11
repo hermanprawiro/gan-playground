@@ -34,12 +34,14 @@ class Generator(nn.Module):
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
             self.blocks.append(nn.Sequential(
-                nn.ConvTranspose2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1),
+                nn.Upsample(scale_factor=2),
+                nn.utils.spectral_norm(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 3, padding=1)),
                 nn.BatchNorm2d(self.arch['out_channels'][idx]),
                 nn.ReLU(True)
             ))
         self.out_layer = nn.Sequential(
-            nn.ConvTranspose2d(self.arch['out_channels'][-1], img_dim, 4, stride=2, padding=1),
+            nn.Upsample(scale_factor=2),
+            nn.utils.spectral_norm(nn.Conv2d(self.arch['out_channels'][-1], img_dim, 3, padding=1)),
             nn.Tanh()
         )
 
@@ -59,7 +61,7 @@ class Generator(nn.Module):
     def init_weights(self):
         self.param_count = 0
         for module in self.modules():
-            if (isinstance(module, nn.ConvTranspose2d) 
+            if (isinstance(module, nn.Conv2d) 
             or isinstance(module, nn.Linear)):
                 if self.init == 'ortho':
                     nn.init.orthogonal_(module.weight)
@@ -92,64 +94,43 @@ def D_arch(ndf=64, img_dim=3):
     return arch
 
 class Discriminator(nn.Module):
-    def __init__(self, ndf=64, img_dim=3, resolution=64, cont_dim=2, cat_dim=10, init='N02', skip_init=False):
+    def __init__(self, ndf=64, img_dim=3, resolution=64, bottom_width=4, output_dim=1, init='N02', skip_init=False):
         super().__init__()
         self.ndf = ndf
         self.img_dim = img_dim
         self.resolution = resolution
+        self.bottom_width = bottom_width
         self.init = init
         self.arch = D_arch(ndf=ndf, img_dim=img_dim)[resolution]
 
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
             block = []
-            block.append(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1))
+            block.append(nn.utils.spectral_norm(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1)))
             if idx != 0:
                 block.append(nn.BatchNorm2d(self.arch['out_channels'][idx]))
             block.append(nn.LeakyReLU(0.2, True))
             self.blocks.append(nn.Sequential(*block))
-        
-        last_hidden = self.arch['out_channels'][-1]
-        self.fc = nn.Sequential(
-            nn.Linear(last_hidden, last_hidden),
-            nn.BatchNorm1d(last_hidden),
-            nn.LeakyReLU(0.2, True)
-        )
-        self.out_adv = nn.Linear(last_hidden, 1)
-        self.out_cat = nn.Linear(last_hidden, cat_dim)
-        self.out_mu = nn.Linear(last_hidden, cont_dim)
-        self.out_logvar = nn.Linear(last_hidden, cont_dim)
+
+        self.out_layer = nn.Linear(self.arch['out_channels'][-1] * (bottom_width**2), output_dim)
 
         if not skip_init:
             self.init_weights()
 
-    def forward(self, x):
-        h = self.forward_shared(x)
-        out = self.out_adv(h)
-        out_cat = self.out_cat(h)
-        mu, logvar = self.encode(h)
-
-        return out, out_cat, mu, logvar
-
-    def reparameterize(self, mu, logvar):
-        # std = torch.exp(0.5*logvar)
-        std = F.softplus(logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-
-    def forward_shared(self, x):
+    def forward(self, x, out_hidden=False):
         h = x
         for idx, block in enumerate(self.blocks):
             h = block(h)
-        h = torch.sum(h, dim=[2, 3]) # Global sum pooling
-        h = self.fc(h)
+        if out_hidden:
+            out_h = h
+        # h = torch.sum(h, dim=[2, 3]) # Global sum pooling
+        h = h.flatten(start_dim=1)
+        out = self.out_layer(h)
 
-        return h
-
-    def encode(self, h):
-        mu = self.out_mu(h)
-        logvar = self.out_logvar(h)
-        return mu, logvar
+        if out_hidden:
+            return out, out_h
+        else:
+            return out
 
     def init_weights(self):
         self.param_count = 0
@@ -176,6 +157,6 @@ if __name__ == "__main__":
 
     z = torch.randn(4, 100)
     fake = netG(z)
-    logits = netD(fake, z)
+    logits = netD(fake)
     print(fake.shape)
     print(logits.shape)

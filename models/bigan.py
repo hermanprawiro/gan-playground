@@ -86,8 +86,8 @@ def D_arch(ndf=64, img_dim=3):
         'out_channels': [ndf * item for item in [2, 4, 8, 16]],
     }
     arch[128] = {
-        'in_channels': [img_dim] + [ndf * item for item in [2, 4, 8, 16]],
-        'out_channels': [ndf * item for item in [2, 4, 8, 16, 16]],
+        'in_channels': [img_dim] + [ndf * item for item in [1, 2, 4, 8]],
+        'out_channels': [ndf * item for item in [1, 2, 4, 8, 16]],
     }
     return arch
 
@@ -160,8 +160,8 @@ def E_arch(ndf=64, img_dim=3):
         'out_channels': [ndf * item for item in [2, 4, 8, 16]],
     }
     arch[128] = {
-        'in_channels': [img_dim] + [ndf * item for item in [2, 4, 8, 16]],
-        'out_channels': [ndf * item for item in [2, 4, 8, 16, 16]],
+        'in_channels': [img_dim] + [ndf * item for item in [1, 2, 4, 8]],
+        'out_channels': [ndf * item for item in [1, 2, 4, 8, 16]],
     }
     return arch
 
@@ -176,12 +176,11 @@ class Encoder(nn.Module):
 
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
-            block = []
-            block.append(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1))
-            if idx != 0:
-                block.append(nn.BatchNorm2d(self.arch['out_channels'][idx]))
-            block.append(nn.LeakyReLU(0.2, True))
-            self.blocks.append(nn.Sequential(*block))
+            self.blocks.append(nn.Sequential(
+                nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1),
+                nn.BatchNorm2d(self.arch['out_channels'][idx]),
+                nn.ReLU(True)
+            ))
         
         self.out_layer = nn.Linear(self.arch['out_channels'][-1], output_dim)
 
