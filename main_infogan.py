@@ -133,14 +133,15 @@ def main(args):
             # Mutual Information
             optMI.zero_grad()
             # Enforce real sample's categorical distribution
-            _, outCat, _, _ = netD(x_real)
-            lossMI_cat_real = criterion_cat(outCat, labels)
+            # _, outCat, _, _ = netD(x_real)
+            # lossMI_cat_real = criterion_cat(outCat, labels)
             # Original InfoGAN Mutual Information Losses
             outG = netG(z)
             _, outCat, outMu, outLogvar = netD(outG)
             lossMI_cat = criterion_cat(outCat, z_labels)
-            lossMI_cont = gaussian_log_loss(z_cont, outMu, outLogvar.exp())
-            lossMI = lossMI_cat_real + lossMI_cat + lossMI_cont*args.lambda_mi_cont
+            lossMI_cont = gaussian_log_loss(z_cont, outMu, outLogvar.exp()) - gaussian_log_loss(z_cont, prior_mu, prior_var)
+            # lossMI = lossMI_cat_real + lossMI_cat + lossMI_cont*args.lambda_mi_cont
+            lossMI = lossMI_cat + lossMI_cont*args.lambda_mi_cont
             lossMI.backward()
             optMI.step()
 
