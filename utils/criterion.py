@@ -41,22 +41,29 @@ class GANLoss(nn.Module):
         return loss
 
 class VAELoss(nn.Module):
-    def __init__(self, recon_mode='l2'):
+    def __init__(self, recon_mode='l2', beta=1):
         super().__init__()
 
         recon_dict = {
-            'bce': nn.BCELoss(reduction='sum'),
-            'l1': nn.L1Loss(reduction='sum'),
-            'l2': nn.MSELoss(reduction='sum'),
-            'smoothl1': nn.SmoothL1Loss(reduction='sum'),
+            'bce': nn.BCELoss(reduction='none'),
+            'l1': nn.L1Loss(reduction='none'),
+            'l2': nn.MSELoss(reduction='none'),
+            'smoothl1': nn.SmoothL1Loss(reduction='none'),
+            'none': None,
         }
         if recon_mode not in recon_dict.keys():
             raise NotImplementedError('Reconstruction mode %s is not implemented' % recon_mode)
+        # Normalized beta = beta * latent_dim / input_dim
+        self.beta = beta
         self.recon_criterion = recon_dict[recon_mode]
 
-    def forward(self, recon_x, target_x, mu, logvar):
-        recon_loss = self.recon_criterion(recon_x, target_x)
-        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    def forward(self, mu, logvar, recon_x=None, target_x=None):
+        if self.recon_criterion is not None:
+            recon_loss = self.recon_criterion(recon_x, target_x).sum((1, 2, 3)).mean()
+        else:
+            recon_loss = 0
+        
+        # KL Divergence => 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        kld_loss = (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), 1)).mean()
 
-        return recon_loss + kld_loss
+        return recon_loss + self.beta * kld_loss

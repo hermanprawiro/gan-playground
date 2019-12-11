@@ -16,7 +16,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=20)
-parser.add_argument("--batch_size", type=int, default=128)
+parser.add_argument("--batch_size", type=int, default=64)
 parser.add_argument("--learning_rate", type=float, default=2e-4)
 parser.add_argument("--beta1", type=float, default=0.5, help="Momentum term for Adam (beta1)")
 parser.add_argument("--beta2", type=float, default=0.999, help="Momentum term for Adam (beta2)")
@@ -35,7 +35,9 @@ parser.add_argument("--data_root", type=str, default=R"E:\Datasets\CelebA")
 
 args = parser.parse_args()
 
-args.save_name = 'vae_celeba_b512_z10'
+args.save_name = 'vae_celeba_b256_z10'
+args.ndf = 16
+args.ngf = 16
 
 args.checkpoint_path = os.path.join(args.checkpoint_path, args.save_name)
 args.result_path = os.path.join(args.result_path, args.save_name)
@@ -70,7 +72,7 @@ netD.eval()
 inputs, labels = next(iter(dataloader))
 inputs = inputs.to(device)
 
-n_interp = 3
+n_interp = 11
 interp_grad = torch.linspace(0, 1, n_interp)
 idx = torch.arange(args.latent_dim)
 idx = torch.zeros((args.latent_dim, args.latent_dim)).scatter_(1, idx.view(-1, 1), 1).unsqueeze(-1).expand(-1, -1, n_interp)
@@ -82,6 +84,7 @@ idx_end = 60
 with torch.no_grad():
     mu, logvar = netE.encode(inputs)
     z = netE.reparameterize(mu, logvar)
+    # z = mu
     x_recon = netD(z)
 
 print(mu[idx_start], logvar[idx_start].exp())
