@@ -2,99 +2,147 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def G_arch(ngf=64, img_dim=3):
+    arch = {}
+    arch[32] = {
+        'in_channels': [ngf * item for item in [8, 4]],
+        'out_channels': [ngf * item for item in [4, 2]],
+    }
+    arch[64] = {
+        'in_channels': [ngf * item for item in [16, 8, 4]],
+        'out_channels': [ngf * item for item in [8, 4, 2]],
+    }
+    arch[128] = {
+        'in_channels': [ngf * item for item in [16, 8, 4, 2]],
+        'out_channels': [ngf * item for item in [8, 4, 2, 1]],
+    }
+    return arch
+
 class Generator(nn.Module):
-    def __init__(self, latent_dim=100, n_class=10, ngf=64, img_dim=3):
+    def __init__(self, z_dim=100, ngf=64, img_dim=3, resolution=64, n_class=10, bottom_width=4, init='N02', skip_init=False):
         super().__init__()
+        self.z_dim = z_dim
+        self.ngf = ngf
+        self.img_dim = img_dim
+        self.resolution = resolution
+        self.bottom_width = bottom_width
+        self.init = init
+        self.arch = G_arch(ngf=ngf, img_dim=img_dim)[resolution]
 
-        self.class_embed = nn.Embedding(n_class, latent_dim)
-
-        self.conv1 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(latent_dim, ngf * 16, 4)), # (n, ngf * 16, 4, 4)
-            nn.BatchNorm2d(ngf * 16),
-            nn.LeakyReLU(0.2, True)
-        )
-        self.conv2 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 16, ngf * 8, 4, stride=2, padding=1)), # (n, ngf * 8, 8, 8)
-            nn.BatchNorm2d(ngf * 8),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv3 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, stride=2, padding=1)), # (n, ngf * 4, 16, 16)
-            nn.BatchNorm2d(ngf * 4),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv4 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, stride=2, padding=1)), # (n, ngf * 2, 32, 32)
-            nn.BatchNorm2d(ngf * 2),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv5 = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf * 2, ngf, 4, stride=2, padding=1)), # (n, ngf, 64, 64)
-            nn.BatchNorm2d(ngf),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv_out = nn.Sequential(
-            nn.utils.spectral_norm(nn.ConvTranspose2d(ngf, img_dim, 4, stride=2, padding=1)), # (n, img_dim, 128, 128)
-            nn.Tanh(),
-        )
-
-    def forward(self, z, c):
-        z = z * self.class_embed(c)
-        z = z[..., None, None]
+        self.linear = nn.Linear(z_dim + n_class, self.arch['in_channels'][0] * (bottom_width**2))
         
-        out = self.conv1(z)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        out = self.conv4(out)
-        out = self.conv5(out)
-        out = self.conv_out(out)
+        self.blocks = nn.ModuleList()
+        for idx in range(len(self.arch['in_channels'])):
+            self.blocks.append(nn.Sequential(
+                nn.ConvTranspose2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1),
+                nn.BatchNorm2d(self.arch['out_channels'][idx]),
+                nn.ReLU(True)
+            ))
+        self.out_layer = nn.Sequential(
+            nn.ConvTranspose2d(self.arch['out_channels'][-1], img_dim, 4, stride=2, padding=1),
+            nn.Tanh()
+        )
+
+        if not skip_init:
+            self.init_weights()
+
+    def forward(self, z, y):
+        h = self.linear(torch.cat([z, y], 1))
+        h = h.view(h.size(0), -1, self.bottom_width, self.bottom_width)
+
+        for idx, block in enumerate(self.blocks):
+            h = block(h)
+        out = self.out_layer(h)
 
         return out
 
+    def init_weights(self):
+        self.param_count = 0
+        for module in self.modules():
+            if (isinstance(module, nn.ConvTranspose2d) 
+            or isinstance(module, nn.Linear)):
+                if self.init == 'ortho':
+                    nn.init.orthogonal_(module.weight)
+                elif self.init == 'N02':
+                    nn.init.normal_(module.weight, 0, 0.02)
+                elif self.init in ['glorot', 'xavier']:
+                    nn.init.xavier_uniform_(module.weight)
+                else:
+                    print('Init style not recognized...')
+            # if (isinstance(module, nn.BatchNorm2d)):
+            #     nn.init.normal_(module.weight, 1.0, 0.02)
+            
+            self.param_count += sum([p.data.nelement() for p in module.parameters()])
+        print('Param count for G''s initialized parameters: %d' % self.param_count)
+
+def D_arch(ndf=64, img_dim=3):
+    arch = {}
+    arch[32] = {
+        'in_channels': [img_dim] + [ndf * item for item in [2, 4]],
+        'out_channels': [ndf * item for item in [2, 4, 8]],
+    }
+    arch[64] = {
+        'in_channels': [img_dim] + [ndf * item for item in [2, 4, 8]],
+        'out_channels': [ndf * item for item in [2, 4, 8, 16]],
+    }
+    arch[128] = {
+        'in_channels': [img_dim] + [ndf * item for item in [1, 2, 4, 8]],
+        'out_channels': [ndf * item for item in [1, 2, 4, 8, 16]],
+    }
+    return arch
+
 class Discriminator(nn.Module):
-    def __init__(self, n_class=10, ndf=64, img_dim=3):
+    def __init__(self, ndf=64, img_dim=3, resolution=64, n_class=10, output_dim=1, init='N02', skip_init=False):
         super().__init__()
+        self.ndf = ndf
+        self.img_dim = img_dim
+        self.resolution = resolution
+        self.init = init
+        self.arch = D_arch(ndf=ndf, img_dim=img_dim)[resolution]
 
-        # (n, img_dim, 128, 128)
-        self.conv1 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(img_dim, ndf, 4, stride=2, padding=1)), # (n, ndf, 64, 64)
-            nn.LeakyReLU(0.2, True)
-        )
-        self.conv2 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(ndf, ndf * 2, 4, stride=2, padding=1)), # (n, ndf * 2, 32, 32)
-            nn.BatchNorm2d(ndf * 2),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv3 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(ndf * 2, ndf * 4, 4, stride=2, padding=1)), # (n, ndf * 4, 16, 16)
-            nn.BatchNorm2d(ndf * 4),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv4 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(ndf * 4, ndf * 8, 4, stride=2, padding=1)), # (n, ndf * 8, 8, 8)
-            nn.BatchNorm2d(ndf * 8),
-            nn.LeakyReLU(0.2, True),
-        )
-        self.conv5 = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(ndf * 8, ndf * 16, 4, stride=2, padding=1)), # (n, ndf * 16, 4, 4)
-            nn.BatchNorm2d(ndf * 16),
-            nn.LeakyReLU(0.2, True),
-        )
+        self.blocks = nn.ModuleList()
+        for idx in range(len(self.arch['in_channels'])):
+            block = []
+            block.append(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1))
+            if idx != 0:
+                block.append(nn.BatchNorm2d(self.arch['out_channels'][idx]))
+            block.append(nn.LeakyReLU(0.2, True))
+            self.blocks.append(nn.Sequential(*block))
+            
+        self.out_layer = nn.Linear(self.arch['out_channels'][-1], output_dim)
+        self.out_aux = nn.Linear(self.arch['out_channels'][-1], n_class)
 
-        self.out_adv = nn.utils.spectral_norm(nn.Conv2d(ndf * 16, 1, 4))
-        self.out_cls = nn.utils.spectral_norm(nn.Conv2d(ndf * 16, n_class, 4))
+        if not skip_init:
+            self.init_weights()
 
     def forward(self, x):
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        out = self.conv4(out)
-        out = self.conv5(out)
+        h = x
+        for idx, block in enumerate(self.blocks):
+            h = block(h)
+        h = torch.sum(h, dim=[2, 3]) # Global sum pooling
+        out = self.out_layer(h)
+        out_aux = self.out_aux(h)
 
-        out_adv = self.out_adv(out).flatten(start_dim=1)
-        out_cls = self.out_cls(out).flatten(start_dim=1)
+        return out, out_aux
 
-        return out_adv, out_cls
+    def init_weights(self):
+        self.param_count = 0
+        for module in self.modules():
+            if (isinstance(module, nn.Conv2d) 
+            or isinstance(module, nn.Linear)):
+                if self.init == 'ortho':
+                    nn.init.orthogonal_(module.weight)
+                elif self.init == 'N02':
+                    nn.init.normal_(module.weight, 0, 0.02)
+                elif self.init in ['glorot', 'xavier']:
+                    nn.init.xavier_uniform_(module.weight)
+                else:
+                    print('Init style not recognized...')
+            # if (isinstance(module, nn.BatchNorm2d)):
+            #     nn.init.normal_(module.weight, 1.0, 0.02)
+            
+            self.param_count += sum([p.data.nelement() for p in module.parameters()])
+        print('Param count for D''s initialized parameters: %d' % self.param_count)
 
 if __name__ == "__main__":
     netG = Generator()
