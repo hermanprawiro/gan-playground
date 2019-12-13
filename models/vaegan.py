@@ -47,7 +47,7 @@ class Generator(nn.Module):
             self.init_weights()
 
     def forward(self, z):
-        h = self.linear(z)
+        h = F.relu(self.linear(z), True)
         h = h.view(h.size(0), -1, self.bottom_width, self.bottom_width)
 
         for idx, block in enumerate(self.blocks):

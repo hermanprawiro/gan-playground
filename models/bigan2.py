@@ -34,12 +34,12 @@ class Generator(nn.Module):
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
             self.blocks.append(nn.Sequential(
-                nn.ConvTranspose2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1),
+                nn.utils.spectral_norm(nn.ConvTranspose2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1)),
                 nn.BatchNorm2d(self.arch['out_channels'][idx]),
                 nn.ReLU(True)
             ))
         self.out_layer = nn.Sequential(
-            nn.ConvTranspose2d(self.arch['out_channels'][-1], img_dim, 4, stride=2, padding=1),
+            nn.utils.spectral_norm(nn.ConvTranspose2d(self.arch['out_channels'][-1], img_dim, 4, stride=2, padding=1)),
             nn.Tanh()
         )
 
@@ -47,7 +47,7 @@ class Generator(nn.Module):
             self.init_weights()
 
     def forward(self, z):
-        h = self.linear(z)
+        h = F.relu(self.linear(z), True)
         h = h.view(h.size(0), -1, self.bottom_width, self.bottom_width)
 
         for idx, block in enumerate(self.blocks):
@@ -104,34 +104,34 @@ class Discriminator(nn.Module):
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
             block = []
-            block.append(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1))
+            block.append(nn.utils.spectral_norm(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1)))
             if idx != 0:
                 block.append(nn.BatchNorm2d(self.arch['out_channels'][idx]))
             block.append(nn.LeakyReLU(0.2, True))
             self.blocks.append(nn.Sequential(*block))
         last_hidden = self.arch['out_channels'][-1]
         self.feat_f = nn.Sequential(
-            nn.Linear(last_hidden, ndf * 2),
+            nn.utils.spectral_norm(nn.Linear(last_hidden, ndf * 8)),
             nn.LeakyReLU(0.2, True)
         )
-        self.out_f = nn.Linear(ndf * 2, 1)
+        self.out_f = nn.Linear(ndf * 8, 1)
 
         # Submodule H(z)
         self.feat_h = nn.Sequential(
-            nn.Linear(z_dim, ndf * 2),
+            nn.utils.spectral_norm(nn.Linear(z_dim, ndf * 8)),
             nn.LeakyReLU(0.2, True),
-            nn.Linear(ndf * 2, ndf * 2),
+            nn.utils.spectral_norm(nn.Linear(ndf * 8, ndf * 8)),
             nn.LeakyReLU(0.2, True),
         )
-        self.out_h = nn.Linear(ndf * 2, 1)
+        self.out_h = nn.Linear(ndf * 8, 1)
 
         # Submodule J(F(x), H(z))
         self.out_j = nn.Sequential(
-            nn.Linear(ndf * 4, ndf * 2),
+            nn.utils.spectral_norm(nn.Linear(ndf * 16, ndf * 8)),
             nn.LeakyReLU(0.2, True),
-            nn.Linear(ndf * 2, ndf * 2),
+            nn.utils.spectral_norm(nn.Linear(ndf * 8, ndf * 8)),
             nn.LeakyReLU(0.2, True),
-            nn.Linear(ndf * 2, 1)
+            nn.Linear(ndf * 8, 1)
         )
 
         if not skip_init:
@@ -200,16 +200,16 @@ class Encoder(nn.Module):
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
             self.blocks.append(nn.Sequential(
-                nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1),
+                nn.utils.spectral_norm(nn.Conv2d(self.arch['in_channels'][idx], self.arch['out_channels'][idx], 4, stride=2, padding=1)),
                 nn.BatchNorm2d(self.arch['out_channels'][idx]),
                 nn.ReLU(True)
             ))
         self.fc = nn.Sequential(
-            nn.Linear(self.arch['out_channels'][-1], ndf * 2),
+            nn.utils.spectral_norm(nn.Linear(self.arch['out_channels'][-1], ndf * 8)),
             nn.ReLU(True)
         )
-        self.out_mu = nn.Linear(ndf * 2, output_dim)
-        self.out_logvar = nn.Linear(ndf * 2, output_dim)
+        self.out_mu = nn.Linear(ndf * 8, output_dim)
+        self.out_logvar = nn.Linear(ndf * 8, output_dim)
 
         if not skip_init:
             self.init_weights()

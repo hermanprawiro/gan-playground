@@ -47,7 +47,7 @@ class Generator(nn.Module):
             self.init_weights()
 
     def forward(self, z):
-        h = self.linear(z)
+        h = F.relu(self.linear(z), True)
         h = h.view(h.size(0), -1, self.bottom_width, self.bottom_width)
 
         for idx, block in enumerate(self.blocks):
@@ -108,24 +108,34 @@ class Discriminator(nn.Module):
                 block.append(nn.BatchNorm2d(self.arch['out_channels'][idx]))
             block.append(nn.LeakyReLU(0.2, True))
             self.blocks.append(nn.Sequential(*block))
-        
+
         last_hidden = self.arch['out_channels'][-1]
-        self.linear_aux = nn.Linear(z_dim, last_hidden // 2)
-        self.linear_adv = nn.Linear(last_hidden, last_hidden // 2)
-        self.out_layer = nn.Linear(last_hidden, output_dim)
+        self.linear_x = nn.Sequential(
+            nn.Linear(last_hidden, ndf * 8),
+            nn.LeakyReLU(0.2, True)
+        )
+        self.linear_z = nn.Sequential(
+            nn.Linear(z_dim, ndf * 8),
+            nn.LeakyReLU(0.2, True)
+        )
+        
+        self.out_layer = nn.Sequential(
+            nn.Linear(ndf * 8 * 2, ndf * 8),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(ndf * 8, output_dim)
+        )
 
         if not skip_init:
             self.init_weights()
 
-    def forward(self, x, y):
+    def forward(self, x, z):
         h = x
         for idx, block in enumerate(self.blocks):
             h = block(h)
         h = torch.sum(h, dim=[2, 3]) # Global sum pooling
-        
-        h = self.linear_adv(h)
-        h = torch.cat([h, self.linear_aux(y)], dim=1)
-        out = self.out_layer(F.relu(h))
+        h = self.linear_x(h)
+        z = self.linear_z(z)
+        out = self.out_layer(torch.cat([h, z], 1))
 
         return out
 
@@ -182,7 +192,11 @@ class Encoder(nn.Module):
                 nn.ReLU(True)
             ))
         
-        self.out_layer = nn.Linear(self.arch['out_channels'][-1], output_dim)
+        self.out_layer = nn.Sequential(
+            nn.Linear(self.arch['out_channels'][-1], ndf * 8),
+            nn.ReLU(True),
+            nn.Linear(ndf * 8, output_dim)
+        )
 
         if not skip_init:
             self.init_weights()

@@ -58,7 +58,7 @@ def main(args):
     optG = torch.optim.Adam(list(netG.parameters()) + list(netE.parameters()), lr=2e-4, betas=(args.beta1, args.beta2))
     optD = torch.optim.Adam(netD.parameters(), lr=2e-4, betas=(args.beta1, args.beta2))
 
-    criterion = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.0, target_fake_G_label=0.9).to(device)
+    criterion = GANLoss('vanilla', target_real_label=0.1, target_fake_label=0.9, target_fake_G_label=0.1).to(device)
 
     fixed_noise = torch.randn(32, args.latent_dim, device=device)
     fixed_real = next(iter(dataloader))[0][:32].to(device)
@@ -74,22 +74,6 @@ def main(args):
             z_enc = netE(inputs)
             x_fake = netG(z_real)
 
-            # TTUR Training
-            if i % args.n_disc_update == 0:
-                optG.zero_grad()
-                # Encoder
-                outD = netD(inputs, z_enc)
-                Dx2 = outD.mean().item()
-                lossE = criterion(outD, False)
-                lossE.backward()
-
-                # Generator
-                outD = netD(x_fake, z_real)
-                Dgz2 = outD.mean().item()
-                lossG = criterion(outD, False, True)
-                lossG.backward()
-                optG.step()
-
             optD.zero_grad()
             # Discriminator (Real)
             outD = netD(inputs, z_enc.detach())
@@ -104,6 +88,20 @@ def main(args):
             lossD_fake.backward()
             lossD = lossD_real + lossD_fake
             optD.step()
+
+            optG.zero_grad()
+            # Encoder
+            outD = netD(inputs, z_enc)
+            Dx2 = outD.mean().item()
+            lossE = criterion(outD, False)
+            lossE.backward()
+
+            # Generator
+            outD = netD(x_fake, z_real)
+            Dgz2 = outD.mean().item()
+            lossG = criterion(outD, False, True)
+            lossG.backward()
+            optG.step()
 
             if i % 50 == 0:
                 # Reconstruction from latent code

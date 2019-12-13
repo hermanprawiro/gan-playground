@@ -75,20 +75,6 @@ def main(args):
             z_enc = netE(x_real)
             x_fake = netG(z_real)
 
-            optG.zero_grad()
-            # Encoder & Generator
-            outD_x, outD_z, outD_xz = netD(x_real, z_enc)
-            Dx2 = outD_xz.mean().item()
-            lossE = (outD_x + outD_z + outD_xz).mean()
-
-            outD_x, outD_z, outD_xz = netD(x_fake, z_real)
-            Dgz2 = outD_xz.mean().item()
-            lossG = (outD_x + outD_z + outD_xz).mul(-1).mean()
-
-            lossEG = lossE + lossG
-            lossEG.backward()
-            optG.step()
-
             optD.zero_grad()
             # Discriminator (Real)
             outD_x, outD_z, outD_xz = netD(x_real, z_enc.detach())
@@ -103,6 +89,24 @@ def main(args):
             lossD = lossD_real + lossD_fake
             lossD.backward()
             optD.step()
+
+            z_real = torch.randn(x_real.shape[0], args.latent_dim, device=device)
+            z_enc = netE(x_real)
+            x_fake = netG(z_real)
+
+            optG.zero_grad()
+            # Encoder & Generator
+            outD_x, outD_z, outD_xz = netD(x_real, z_enc)
+            Dx2 = outD_xz.mean().item()
+            lossE = (outD_x + outD_z + outD_xz).mean()
+
+            outD_x, outD_z, outD_xz = netD(x_fake, z_real)
+            Dgz2 = outD_xz.mean().item()
+            lossG = (outD_x + outD_z + outD_xz).mul(-1).mean()
+
+            lossEG = lossE + lossG
+            lossEG.backward()
+            optG.step()
 
             if i % 50 == 0:
                 # Reconstruction from latent code

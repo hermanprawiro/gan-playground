@@ -19,6 +19,7 @@ parser.add_argument("--batch_size", type=int, default=128)
 parser.add_argument("--learning_rate", type=float, default=2e-4)
 parser.add_argument("--beta1", type=float, default=0.5)
 parser.add_argument("--beta2", type=float, default=0.999)
+parser.add_argument("--beta", type=float, default=1, help="KL Divergence weight beta (beta-VAE)")
 parser.add_argument("--ndf", type=int, default=64, help="Base features multiplier for discriminator")
 parser.add_argument("--ngf", type=int, default=64, help="Base features multiplier for generator")
 parser.add_argument("--n_disc_update", type=int, default=1)
@@ -84,11 +85,11 @@ def main(args):
             
             # Encoder
             optE.zero_grad()
-            lossE_prior = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            lossE_prior = (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), 1)).mean()
             _, featD_real = netD(x_real, True)
             _, featD_recon = netD(x_recon, True)
-            loss_similarity = (featD_real.detach() - featD_recon).pow(2).sum()
-            lossE = lossE_prior + loss_similarity
+            loss_similarity = (featD_real.detach() - featD_recon).pow(2).sum((1, 2, 3)).mean()
+            lossE = loss_similarity + args.beta * lossE_prior
             lossE.backward()
             optE.step()
 
@@ -105,7 +106,7 @@ def main(args):
             outD = netD(x_recon)
             lossG_recon = criterion_gan(outD, False, True)
 
-            lossG = lossG_prior + lossG_recon + loss_similarity * 0.2
+            lossG = lossG_prior + (lossG_recon + loss_similarity * 0.1) * 0.5
             lossG.backward()
             optG.step()
 
@@ -125,7 +126,7 @@ def main(args):
             Dgz2 = outD.mean().item()
             lossD_recon = criterion_gan(outD, False)
 
-            lossD = lossD_real + lossD_fake + lossD_recon
+            lossD = lossD_real + (lossD_fake + lossD_recon) * 0.5
             lossD.backward()
             optD.step()
 
