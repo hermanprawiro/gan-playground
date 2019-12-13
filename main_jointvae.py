@@ -10,18 +10,17 @@ from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
 from models import jointvae
-from utils.criterion import VAELoss
 from utils.misc import to_one_hot
+from utils.latent_traversals import LatentTraverser
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=20)
+parser.add_argument("--n_epochs", type=int, default=100)
 parser.add_argument("--batch_size", type=int, default=128)
 parser.add_argument("--learning_rate", type=float, default=2e-4)
 parser.add_argument("--beta1", type=float, default=0.5, help="Momentum term for Adam (beta1)")
 parser.add_argument("--beta2", type=float, default=0.999, help="Momentum term for Adam (beta2)")
-parser.add_argument("--beta", type=float, default=1, help="KL Divergence weight beta (beta-VAE)")
 parser.add_argument("--ndf", type=int, default=16, help="Base features multiplier for discriminator")
 parser.add_argument("--ngf", type=int, default=16, help="Base features multiplier for generator")
 parser.add_argument("--n_workers", type=int, default=8)
@@ -74,23 +73,27 @@ def main(args):
     cont_capacity_min = 0.0
     cont_capacity_max = 5.0
     cont_capacity_gamma = 30.0
-    cont_capacity_iters = int(args.n_epochs * iters_per_epoch)
+    # cont_capacity_iters = int(args.n_epochs * iters_per_epoch)
+    cont_capacity_iters = 25000
     disc_capacity_min = 0.0
-    disc_capacity_max = 5.0
+    disc_capacity_max = 2.5
     disc_capacity_gamma = 30.0
-    disc_capacity_iters = int(args.n_epochs * iters_per_epoch)
+    # disc_capacity_iters = int(args.n_epochs * iters_per_epoch)
+    disc_capacity_iters = 25000
 
     netE = jointvae.Encoder(ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res, latent_cont_dim=latent_cont_dim, latent_disc_dims=latent_disc_dims).to(device)
     netD = jointvae.Generator(ngf=args.ngf, img_dim=args.image_ch, resolution=args.image_res, z_dim=z_dim).to(device)
 
     optimizer = torch.optim.Adam(list(netE.parameters()) + list(netD.parameters()), lr=args.learning_rate, betas=(args.beta1, args.beta2))
 
-    # criterion = VAELoss(beta=args.beta).to(device)
-
-    fixed_noise = torch.linspace(-1., 1., 8, device=device).view(-1, 1).repeat(10, args.latent_dim)
-    fixed_label = torch.arange(10, device=device).view(-1, 1).repeat(1, 8).flatten()
-    fixed_label = to_one_hot(fixed_label, 10)
-    fixed_latent = torch.cat([fixed_noise, fixed_label], 1)
+    latent_spec = {'cont': latent_cont_dim, 'disc': latent_disc_dims}
+    lt = LatentTraverser(latent_spec)
+    fixed_latent = []
+    for i in range(latent_cont_dim):
+        fixed_latent.append(lt.traverse_line(cont_idx=i, disc_idx=None, size=10))
+    for i in range(len(latent_disc_dims)):
+        fixed_latent.append(lt.traverse_line(cont_idx=None, disc_idx=i, size=10))
+    fixed_latent = torch.cat(fixed_latent, 0).to(device)
 
     netE.train()
     netD.train()
@@ -124,23 +127,21 @@ def main(args):
             loss_kl_discs_cap = disc_capacity_gamma * (disc_capacity - loss_kl_discs).abs()
 
             loss = loss_recon + loss_kl_cont_cap + loss_kl_discs_cap
-            loss = loss / (args.image_res ** 2)
+            # loss = loss / (args.image_res ** 2)
             loss.backward()
             optimizer.step()
 
             if i % 50 == 0:
-                print('[%d/%d][%d/%d] Loss: %.4f Recon: %.4f KL Cont: %.4f KL Disc: %.4f | Mu/Var: %.4f/%.4f | Cap: %.4f/%.4f'
-                    % (epoch + 1, args.n_epochs, i, len(dataloader), loss.item(), loss_recon.item(), loss_kl_cont_cap.item(), loss_kl_discs_cap.item(), mu.mean().item(), logvar.exp().mean().item(), cont_capacity, disc_capacity))
+                print('[%d/%d][%d/%d] Loss: %.4f Recon: %.4f KL Cont: %.4f/%.4f KL Disc: %.4f/%.4f | Mu/Var: %.4f/%.4f | Cap: %.4f/%.4f'
+                    % (epoch + 1, args.n_epochs, i, len(dataloader), loss.item(), loss_recon.item(), loss_kl_cont_cap.item(), loss_kl_cont.item(), loss_kl_discs_cap.item(), loss_kl_discs.item(), mu.mean().item(), logvar.exp().mean().item(), cont_capacity, disc_capacity))
 
                 # Reconstruction from latent code
                 outG = netD(fixed_latent).detach()
-                z_enc = netE(outG).detach()
-                reconG = netD(z_enc).detach()
-                save_image(torch.cat([outG, reconG], dim=0), '%s/fake/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1), normalize=True)
+                save_image(outG, '%s/fake/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1), nrow=10, normalize=True)
 
                 # Reconstruction from real image
                 outG = torch.cat([inputs[:32].cpu(), x_recon[:32].cpu()], dim=0)
-                save_image(outG, '%s/real/fake_epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1), normalize=True)
+                save_image(outG, '%s/real/epoch%03d_%04d.jpg' % (args.result_path, epoch + 1, i + 1), normalize=True)
         save_model((netE, netD), optimizer, epoch, args.checkpoint_path)            
 
 
