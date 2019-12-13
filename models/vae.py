@@ -127,9 +127,13 @@ class Encoder(nn.Module):
         return out
 
     def reparameterize(self, mu, logvar):
-        std = F.softplus(logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            # std = F.softplus(logvar)
+            eps = torch.randn_like(std)
+            return mu + eps*std
+        else:
+            return mu
 
     def encode(self, x):
         h = x

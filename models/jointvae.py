@@ -166,7 +166,8 @@ class Encoder(nn.Module):
 
     def sample_gaussian(self, mu, logvar):
         if self.training:
-            std = F.softplus(logvar)
+            std = torch.exp(0.5 * logvar)
+            # std = F.softplus(logvar)
             eps = torch.randn_like(std)
             return mu + eps*std
         else:
@@ -174,9 +175,27 @@ class Encoder(nn.Module):
 
     def sample_gumbel_softmax(self, alpha):
         if self.training:
-            return F.gumbel_softmax(alpha, tau=self.temperature, hard=False)
+            # return F.gumbel_softmax(alpha, tau=self.temperature, hard=False)
+            unif = torch.rand(alpha.size()).cuda()
+            # if self.use_cuda:
+            #     unif = unif.cuda()
+            gumbel = -torch.log(-torch.log(unif + 1e-12) + 1e-12)
+            # Reparameterize to create gumbel softmax sample
+            log_alpha = torch.log(alpha + 1e-12)
+            logit = (log_alpha + gumbel) / self.temperature
+            return F.softmax(logit, dim=1)
         else:
-            return F.gumbel_softmax(alpha, tau=self.temperature, hard=True)
+            # return F.gumbel_softmax(alpha, tau=self.temperature, hard=True)
+            # In reconstruction mode, pick most likely sample
+            _, max_alpha = torch.max(alpha, dim=1)
+            one_hot_samples = torch.zeros(alpha.size())
+            # On axis 1 of one_hot_samples, scatter the value 1 at indices
+            # max_alpha. Note the view is because scatter_ only accepts 2D
+            # tensors.
+            one_hot_samples.scatter_(1, max_alpha.view(-1, 1).data.cpu(), 1)
+            # if self.use_cuda:
+            #     one_hot_samples = one_hot_samples.cuda()
+            return one_hot_samples
 
     def init_weights(self):
         self.param_count = 0

@@ -87,7 +87,7 @@ def main(args):
 
     # criterion = VAELoss(beta=args.beta).to(device)
 
-    fixed_noise = torch.randn(10 * 8, args.latent_dim, device=device)
+    fixed_noise = torch.linspace(-1., 1., 8, device=device).view(-1, 1).repeat(10, args.latent_dim)
     fixed_label = torch.arange(10, device=device).view(-1, 1).repeat(1, 8).flatten()
     fixed_label = to_one_hot(fixed_label, 10)
     fixed_latent = torch.cat([fixed_noise, fixed_label], 1)
@@ -106,12 +106,12 @@ def main(args):
             
             loss_recon = F.mse_loss(x_recon, inputs, reduction='none').mean(0).sum()
             # Continuous
-            cont_capacity = (cont_capacity_max - cont_capacity_max) * (epoch * iters_per_epoch + i) / float(cont_capacity_iters) + cont_capacity_min
+            cont_capacity = (cont_capacity_max - cont_capacity_min) * (epoch * iters_per_epoch + i) / float(cont_capacity_iters) + cont_capacity_min
             cont_capacity = min(cont_capacity, cont_capacity_max)
             loss_kl_cont = (1 + logvar - mu.pow(2) - logvar.exp()).mul(-0.5).mean(0).sum()
             loss_kl_cont_cap = cont_capacity_gamma * (cont_capacity - loss_kl_cont).abs()
             # Discrete
-            disc_capacity = (disc_capacity_max - disc_capacity_max) * (epoch * iters_per_epoch + i) / float(disc_capacity_iters) + disc_capacity_min
+            disc_capacity = (disc_capacity_max - disc_capacity_min) * (epoch * iters_per_epoch + i) / float(disc_capacity_iters) + disc_capacity_min
             disc_capacity = min(disc_capacity, disc_capacity_max)
             loss_kl_discs = []
             for alpha in alphas:
@@ -129,8 +129,8 @@ def main(args):
             optimizer.step()
 
             if i % 50 == 0:
-                print('[%d/%d][%d/%d] Loss: %.4f Recon: %.4f KL Cont: %.4f KL Disc: %.4f | Mu/Var: %.4f/%.4f'
-                    % (epoch + 1, args.n_epochs, i, len(dataloader), loss.item(), loss_recon.item(), loss_kl_cont.item(), loss_kl_discs.item(), mu.mean().item(), logvar.exp().mean().item()))
+                print('[%d/%d][%d/%d] Loss: %.4f Recon: %.4f KL Cont: %.4f KL Disc: %.4f | Mu/Var: %.4f/%.4f | Cap: %.4f/%.4f'
+                    % (epoch + 1, args.n_epochs, i, len(dataloader), loss.item(), loss_recon.item(), loss_kl_cont_cap.item(), loss_kl_discs_cap.item(), mu.mean().item(), logvar.exp().mean().item(), cont_capacity, disc_capacity))
 
                 # Reconstruction from latent code
                 outG = netD(fixed_latent).detach()
