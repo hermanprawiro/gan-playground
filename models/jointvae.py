@@ -31,9 +31,7 @@ class Generator(nn.Module):
 
         features_dim_in = self.arch['in_channels'][0]
         self.latent_to_features = nn.Sequential(
-            nn.Linear(z_dim, features_dim_in),
-            nn.ReLU(True),
-            nn.Linear(features_dim_in, features_dim_in * (bottom_width**2)),
+            nn.Linear(z_dim, features_dim_in * (bottom_width**2)),
             nn.ReLU(True),
         )
         
@@ -119,18 +117,17 @@ class Encoder(nn.Module):
             ))
 
         features_dim_out = self.arch['out_channels'][-1]
+        hidden_dim = features_dim_out // 2
         self.features_to_hidden = nn.Sequential(
-            nn.Linear(features_dim_out * (bottom_width ** 2), features_dim_out),
-            nn.ReLU(True),
-            nn.Linear(features_dim_out, features_dim_out),
+            nn.Linear(features_dim_out, hidden_dim),
             nn.ReLU(True)
         )
 
-        self.out_mu = nn.Linear(features_dim_out, latent_cont_dim)
-        self.out_logvar = nn.Linear(features_dim_out, latent_cont_dim)
+        self.out_mu = nn.Linear(hidden_dim, latent_cont_dim)
+        self.out_logvar = nn.Linear(hidden_dim, latent_cont_dim)
         self.out_alphas = nn.ModuleList()
         for latent_disc_dim in self.latent_disc_dims:
-            self.out_alphas.append(nn.Linear(features_dim_out, latent_disc_dim))
+            self.out_alphas.append(nn.Linear(hidden_dim, latent_disc_dim))
 
         if not skip_init:
             self.init_weights()
@@ -153,7 +150,7 @@ class Encoder(nn.Module):
         h = x
         for idx, block in enumerate(self.blocks):
             h = block(h)
-        # h = torch.sum(h, dim=[2, 3]) # Global sum pooling
+        h = torch.sum(h, dim=[2, 3]) # Global sum pooling
         h = self.features_to_hidden(h.flatten(1))
 
         mu = self.out_mu(h)
@@ -176,7 +173,7 @@ class Encoder(nn.Module):
     def sample_gumbel_softmax(self, alpha):
         if self.training:
             # return F.gumbel_softmax(alpha, tau=self.temperature, hard=False)
-            unif = torch.rand(alpha.size()).cuda()
+            unif = torch.rand(alpha.size()).to(alpha.device)
             # if self.use_cuda:
             #     unif = unif.cuda()
             gumbel = -torch.log(-torch.log(unif + 1e-12) + 1e-12)
@@ -188,11 +185,11 @@ class Encoder(nn.Module):
             # return F.gumbel_softmax(alpha, tau=self.temperature, hard=True)
             # In reconstruction mode, pick most likely sample
             _, max_alpha = torch.max(alpha, dim=1)
-            one_hot_samples = torch.zeros(alpha.size())
+            one_hot_samples = torch.zeros(alpha.size()).to(alpha.device)
             # On axis 1 of one_hot_samples, scatter the value 1 at indices
             # max_alpha. Note the view is because scatter_ only accepts 2D
             # tensors.
-            one_hot_samples.scatter_(1, max_alpha.view(-1, 1).data.cpu(), 1)
+            one_hot_samples.scatter_(1, max_alpha.view(-1, 1).data, 1)
             # if self.use_cuda:
             #     one_hot_samples = one_hot_samples.cuda()
             return one_hot_samples
@@ -217,8 +214,8 @@ class Encoder(nn.Module):
         print('Param count for E''s initialized parameters: %d' % self.param_count)
 
 if __name__ == "__main__":
-    netG = Generator(resolution=64, ngf=32, z_dim=20)
-    netE = Encoder(resolution=64, ndf=32, latent_cont_dim=10, latent_disc_dims=[10])
+    netG = Generator(resolution=64, z_dim=20)
+    netE = Encoder(resolution=64, latent_cont_dim=10, latent_disc_dims=[10])
 
     print(netG)
     print(netE)

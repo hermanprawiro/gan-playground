@@ -29,7 +29,8 @@ class Generator(nn.Module):
         self.init = init
         self.arch = G_arch(ngf=ngf, img_dim=img_dim)[resolution]
 
-        self.linear = nn.Linear(z_dim, self.arch['in_channels'][0] * (bottom_width**2))
+        # self.linear = nn.Linear(z_dim, self.arch['in_channels'][0] * (bottom_width**2))
+        self.linear = nn.ConvTranspose2d(z_dim, self.arch['in_channels'][0], bottom_width)
         
         self.blocks = nn.ModuleList()
         for idx in range(len(self.arch['in_channels'])):
@@ -47,8 +48,9 @@ class Generator(nn.Module):
             self.init_weights()
 
     def forward(self, z):
+        z = z[:, :, None, None]
         h = F.relu(self.linear(z), True)
-        h = h.view(h.size(0), -1, self.bottom_width, self.bottom_width)
+        # h = h.view(h.size(0), -1, self.bottom_width, self.bottom_width)
 
         for idx, block in enumerate(self.blocks):
             h = block(h)
@@ -269,3 +271,5 @@ if __name__ == "__main__":
     logits_f, logits_h, logits_j = netD(fake, enc_z)
     print(enc_z.shape)
     print(logits_f.shape, logits_h.shape, logits_j.shape)
+
+    print(netG)
