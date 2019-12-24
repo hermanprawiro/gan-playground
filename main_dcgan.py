@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
-from models import dcgan, dcgan_specnorm
+from models import dcgan, dcgan_specnorm, dcgan_blur
 from utils.criterion import GANLoss
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -49,13 +49,13 @@ def main(args):
     dataset = torchvision.datasets.CelebA(args.data_root, split="all", transform=tfs)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.n_workers, shuffle=True, pin_memory=True)
 
-    netG = dcgan.Generator(z_dim=args.latent_dim, ngf=args.ngf, img_dim=args.image_ch, resolution=args.image_res).to(device)
-    netD = dcgan.Discriminator(ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res).to(device)
+    netG = dcgan_blur.Generator(z_dim=args.latent_dim, ngf=args.ngf, img_dim=args.image_ch, resolution=args.image_res).to(device)
+    netD = dcgan_blur.Discriminator(ndf=args.ndf, img_dim=args.image_ch, resolution=args.image_res).to(device)
 
     optG = torch.optim.Adam(netG.parameters(), lr=4e-4, betas=(args.beta1, args.beta2))
     optD = torch.optim.Adam(netD.parameters(), lr=1e-4, betas=(args.beta1, args.beta2))
 
-    criterion = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.0, target_fake_G_label=0.9).to(device)
+    criterion = GANLoss('vanilla', target_real_label=0.9, target_fake_label=0.1, target_fake_G_label=0.9).to(device)
 
     fixed_noise = torch.randn(64, args.latent_dim, device=device)
 
@@ -86,6 +86,8 @@ def main(args):
 
             optG.zero_grad()
             # Generator
+            z = torch.randn(inputs.shape[0], args.latent_dim, device=device)
+            outG = netG(z)
             outD = netD(outG)
             Dgz2 = outD.mean().item()
             lossG = criterion(outD, False, True)
